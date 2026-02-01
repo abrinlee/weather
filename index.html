@@ -927,9 +927,10 @@
             const longitude = -96.6989;
 
             try {
+                const fetchOptions = { cache: 'no-store' };
                 const [hrrrResponse, ecmwfResponse] = await Promise.all([
-                    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&models=ncep_hrrr_conus&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m&daily=sunrise,sunset&timezone=America/Chicago&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=1`),
-                    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&models=ecmwf_ifs025&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,weather_code,precipitation_probability_max,precipitation_sum,sunrise,sunset,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&timezone=America/Chicago&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=10`)
+                    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&models=ncep_hrrr_conus&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m&daily=sunrise,sunset&timezone=America/Chicago&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=1`, fetchOptions),
+                    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&models=ecmwf_ifs025&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,weather_code,precipitation_probability_max,precipitation_sum,sunrise,sunset,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&timezone=America/Chicago&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=10`, fetchOptions)
                 ]);
 
                 if (!hrrrResponse.ok) {
@@ -1441,21 +1442,60 @@
             modal.classList.remove('active');
         }
 
-        // Pause animations when tab is hidden
+        // Smart refresh - don't fetch when page is hidden
+        let lastWeatherFetch = 0;
+        let lastMoonUpdate = 0;
+        const WEATHER_INTERVAL = 300000;  // 5 minutes
+        const MOON_INTERVAL = 60000;      // 1 minute
+
+        async function smartWeatherUpdate() {
+            lastWeatherFetch = Date.now();
+            await updateWeather();
+        }
+
+        function smartMoonUpdate() {
+            lastMoonUpdate = Date.now();
+            updateMoonDisplay();
+        }
+
+        function checkAndRefresh() {
+            const now = Date.now();
+            // Refresh if data is stale
+            if (now - lastWeatherFetch >= WEATHER_INTERVAL) {
+                smartWeatherUpdate();
+            }
+            if (now - lastMoonUpdate >= MOON_INTERVAL) {
+                smartMoonUpdate();
+            }
+        }
+
+        // Pause when hidden, refresh when visible
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
                 document.body.classList.add('paused');
             } else {
                 document.body.classList.remove('paused');
+                checkAndRefresh();  // Refresh stale data when returning
             }
         });
 
+        // Only run intervals when page is visible
+        setInterval(function() {
+            if (!document.hidden) {
+                smartMoonUpdate();
+            }
+        }, MOON_INTERVAL);
+
+        setInterval(function() {
+            if (!document.hidden) {
+                smartWeatherUpdate();
+            }
+        }, WEATHER_INTERVAL);
+
         // Initialize
-        updateMoonDisplay();
-        updateWeather();
+        smartMoonUpdate();
+        smartWeatherUpdate();
         window.addEventListener('resize', renderForecastForLayout);
-        setInterval(updateMoonDisplay, 60000);
-        setInterval(updateWeather, 300000);
 
         // Modal event listeners
         document.getElementById('modalClose').addEventListener('click', closeForecastModal);
