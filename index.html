@@ -37,6 +37,19 @@
             flex: 1;
         }
 
+        .location-header {
+            text-align: center;
+            color: #ecf0f1;
+            font-size: 1.4em;
+            font-weight: 500;
+            padding: 10px 0;
+            opacity: 0.9;
+        }
+
+        .location-icon {
+            margin-right: 8px;
+        }
+
         /* row that holds: [forecast-left] [3 main cards] */
         .cards-container {
             display: flex;
@@ -635,6 +648,12 @@
         <!-- RIGHT: main cards + bottom forecast strip -->
         <div class="main-and-bottom">
 
+            <!-- Location Header -->
+            <div class="location-header">
+                <span class="location-icon">📍</span>
+                <span id="locationName">Detecting location...</span>
+            </div>
+
             <div class="cards-container">
                 <!-- LEFT: vertical forecast rail -->
                 <div class="forecast-left">
@@ -740,6 +759,72 @@
     <script>
         let currentWeather = null;
         let forecastData = [];
+
+        // Location settings
+        const HOME_LOCATION = { latitude: 33.0198, longitude: -96.6989, name: 'Home' };
+        let currentLocation = null;
+
+        // Get current position with fallback to home
+        function getCurrentLocation() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    console.log('Geolocation not supported, using home location');
+                    resolve(HOME_LOCATION);
+                    return;
+                }
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        resolve({
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            name: null  // Will be filled by reverse geocoding
+                        });
+                    },
+                    (error) => {
+                        console.log('Geolocation denied or failed, using home location:', error.message);
+                        resolve(HOME_LOCATION);
+                    },
+                    { timeout: 10000, enableHighAccuracy: false }
+                );
+            });
+        }
+
+        // Reverse geocode to get city, state
+        async function reverseGeocode(lat, lon) {
+            try {
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`,
+                    { cache: 'no-store', headers: { 'User-Agent': 'WeatherDashboard/1.0' } }
+                );
+                if (!response.ok) return null;
+                const data = await response.json();
+                const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county;
+                const state = data.address?.state;
+                if (city && state) return `${city}, ${state}`;
+                if (city) return city;
+                if (state) return state;
+                return null;
+            } catch (error) {
+                console.error('Reverse geocoding failed:', error);
+                return null;
+            }
+        }
+
+        // Initialize location and update display
+        async function initLocation() {
+            currentLocation = await getCurrentLocation();
+
+            // Update location display
+            const locationEl = document.getElementById('locationName');
+            if (currentLocation.name === 'Home') {
+                locationEl.textContent = 'Home';
+            } else {
+                locationEl.textContent = 'Locating...';
+                const placeName = await reverseGeocode(currentLocation.latitude, currentLocation.longitude);
+                locationEl.textContent = placeName || 'Current Location';
+            }
+        }
 
         // Lunar calculations
         function getMoonPhase(date) {
@@ -923,8 +1008,8 @@
 
 
         async function fetchWeather() {
-            const latitude = 33.0198;
-            const longitude = -96.6989;
+            if (!currentLocation) return null;
+            const { latitude, longitude } = currentLocation;
 
             try {
                 const fetchOptions = { cache: 'no-store' };
@@ -1493,8 +1578,11 @@
         }, WEATHER_INTERVAL);
 
         // Initialize
-        smartMoonUpdate();
-        smartWeatherUpdate();
+        (async function() {
+            await initLocation();
+            smartMoonUpdate();
+            smartWeatherUpdate();
+        })();
         window.addEventListener('resize', renderForecastForLayout);
 
         // Modal event listeners
